@@ -1,41 +1,53 @@
 # Análise de Jornada de Motoristas
 
-Este repositório contém um conjunto de scripts Python para processar, consolidar e visualizar dados de jornada de motoristas.
+Este repositório contém ferramentas para processar, consolidar e visualizar dados de jornada de motoristas a partir de duas fontes de dados: um sistema de rastreamento (ONIX) e um relatório de jornada (ATS).
 
-## Componentes Principais
+## Estrutura do Projeto
 
-### 1. Script de Consolidação de Dados (`merge_data.py`)
+*   `app.py`: A aplicação principal, um dashboard interativo e completo construído com Streamlit.
+*   `merge_data.py`: Um script de linha de comando para consolidar os dados de forma não-interativa.
+*   `requirements.txt`: Lista de dependências Python para o projeto.
+*   `files/`: Diretório destinado a armazenar os arquivos de dados de entrada e saída.
 
-Este script é responsável por unificar dados de duas fontes distintas: um sistema de rastreamento (ONIX) e um sistema de relatório de jornada (ATS).
+---
 
-**Funcionalidades:**
+## Como Utilizar
 
-*   **Leitura de Dados:** Lê os arquivos `onix.xlsx` e `Relatorio de Jornada.xlsx` localizados no diretório `files/`.
-*   **Processamento e Padronização:** Limpa e normaliza os dados, padroniza os nomes das colunas para um formato comum e extrai informações de data e hora.
-*   **Consolidação:** Une os dados processados das duas fontes em um único arquivo Excel (`Consolidado.xlsx`), que é salvo no diretório `files/`.
-*   **Análise Específica:** Cria uma segunda aba (`Pesquisa Funcionario`) no arquivo consolidado, contendo os horários de início e fim de jornada para um funcionário e data específicos, conforme definido no script.
+Existem duas maneiras de usar este projeto.
 
-### 2. Aplicação de Visualização (`streamlit_app.py`)
+### Método 1: Dashboard Interativo (Recomendado)
 
-Uma aplicação web interativa construída com a biblioteca Streamlit para explorar os dados consolidados.
+Esta é a forma mais completa e amigável de utilizar a ferramenta. A aplicação `app.py` permite fazer o upload dos arquivos, processar os dados e visualizar as análises em um só lugar, sem a necessidade de executar scripts separados.
 
-**Funcionalidades:**
+**Passos:**
 
-*   **Dashboard Interativo:** Apresenta os dados de jornada em uma interface web clara e objetiva.
-*   **Filtragem de Dados:** Permite ao usuário filtrar os registros por motorista, data e origem do dado (ONIX ou ATS) através de um painel lateral.
-*   **Visualização em Tabela:** Exibe os dados filtrados em uma tabela.
-*   **Visualização Geográfica:** Plota as coordenadas de latitude e longitude dos registros em um mapa interativo, permitindo a visualização do trajeto.
-*   **Resumo da Pesquisa:** Apresenta o resultado da análise de início e fim de jornada que foi gerada pelo script `merge_data.py`.
+1.  **Instale as dependências:**
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-## Como Usar
+2.  **Execute a aplicação Streamlit:**
+    ```bash
+    streamlit run app.py
+    ```
 
-1.  **Preparar os Arquivos:** Certifique-se de que os arquivos `onix.xlsx` e `Relatorio de Jornada.xlsx` estão presentes no diretório `files/`.
-2.  **Executar a Consolidação:** Rode o script `merge_data.py` para gerar o arquivo `Consolidado.xlsx` com os dados processados.
+3.  **Use a Interface:**
+    *   No painel lateral da aplicação, faça o upload dos seus arquivos `onix.xlsx` e `Relatorio de Jornada.xlsx`.
+    *   Crie e carregue uma nova análise para ver os dados processados e visualizações interativas.
+
+### Método 2: Script de Linha de Comando
+
+Este método é ideal para automação ou para quem prefere um fluxo de trabalho via terminal. O script `merge_data.py` consolida os arquivos de dados.
+
+**Passos:**
+
+1.  **Adicione os arquivos de dados:**
+    *   Coloque os arquivos `onix.xlsx` e `Relatorio de Jornada.xlsx` dentro da pasta `files/`.
+
+2.  **Execute o script de consolidação:**
     ```bash
     python3 merge_data.py
     ```
-3.  **Iniciar a Aplicação Web:** Após a geração do arquivo consolidado, execute o aplicativo Streamlit.
-    ```bash
-    streamlit run streamlit_app.py
-    ```
-4.  **Acessar a Aplicação:** Abra o navegador no endereço local fornecido pelo Streamlit para interagir com o dashboard.
+
+3.  **Verifique o resultado:**
+    *   O script irá criar o arquivo `Consolidado.xlsx` dentro da pasta `files/`, contendo os dados unificados e uma aba de análise.
