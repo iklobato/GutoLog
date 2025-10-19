@@ -14,63 +14,98 @@ from plotly.subplots import make_subplots
 
 
 def haversine_distance(lat1, lon1, lat2, lon2):
-    """Calculate the great circle distance between two points on Earth in kilometers."""
+    """Calcula a distância do círculo máximo entre dois pontos na Terra.
+
+    Utiliza a fórmula de Haversine para calcular a distância em quilômetros
+    entre duas coordenadas geográficas (latitude e longitude).
+
+    Args:
+        lat1 (float): Latitude do primeiro ponto.
+        lon1 (float): Longitude do primeiro ponto.
+        lat2 (float): Latitude do segundo ponto.
+        lon2 (float): Longitude do segundo ponto.
+
+    Returns:
+        float: A distância entre os dois pontos em quilômetros.
+    """
     lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
     dlat = lat2 - lat1
     dlon = lon2 - lon1
     a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
     c = 2 * asin(sqrt(a))
-    r = 6371  # Radius of earth in kilometers
+    r = 6371  # Raio da Terra em quilômetros
     return c * r
 
 
-@st.cache_data(ttl=3600)  # Cache for 1 hour
+@st.cache_data(ttl=3600)  # Cache de 1 hora
 def load_and_prepare_onix_data(file_content, filename):
-    """Load and prepare ONIX data for merging."""
+    """Carrega e prepara os dados do arquivo ONIX a partir do conteúdo do upload.
+
+    Lê um arquivo Excel (em bytes), padroniza os nomes dos motoristas, converte
+    colunas de data, e adiciona identificadores para a fonte de dados.
+
+    Args:
+        file_content (bytes): O conteúdo binário do arquivo Excel carregado.
+        filename (str): O nome do arquivo original (usado para cache e referência).
+
+    Returns:
+        pd.DataFrame: Um DataFrame do pandas com os dados do ONIX processados.
+    """
     df = pd.read_excel(io.BytesIO(file_content))
 
-    # Standardize driver names for matching
+    # Padroniza nomes de motoristas para correspondência
     df['MOTORISTA_NORMALIZED'] = df['MOTORISTA'].str.strip().str.upper()
 
-    # Convert date to datetime if not already
+    # Converte data para datetime se não estiver
     df['DATA'] = pd.to_datetime(df['DATA'])
 
-    # Create separate date and time columns
+    # Cria colunas separadas de data e hora
     df['DATA_SEPARADA'] = df['DATA'].dt.strftime('%d/%m/%Y')
     df['HORA'] = df['DATA'].dt.strftime('%H:%M:%S')
 
-    # Rename columns for consistency
+    # Renomeia colunas para consistência
     df = df.rename(columns={'LATITU': 'LATITUDE', 'LONGIT': 'LONGITUDE', 'VELOCI': 'VELOCIDADE'})
 
-    # Add source identifier
+    # Adiciona identificador de origem
     df['ORIGEM'] = 'ONIX'
 
     return df
 
 
-@st.cache_data(ttl=3600)  # Cache for 1 hour
+@st.cache_data(ttl=3600)  # Cache de 1 hora
 def load_and_prepare_jornada_data(file_content, filename):
-    """Load and prepare Relatorio de Jornada data for merging."""
+    """Carrega e prepara os dados do Relatório de Jornada a partir do conteúdo do upload.
+
+    Lê um arquivo Excel (em bytes), padroniza nomes, converte datas e colunas
+    de coordenadas, e adiciona um identificador de fonte de dados.
+
+    Args:
+        file_content (bytes): O conteúdo binário do arquivo Excel carregado.
+        filename (str): O nome do arquivo original (usado para cache e referência).
+
+    Returns:
+        pd.DataFrame: Um DataFrame do pandas com os dados de Jornada processados.
+    """
     df = pd.read_excel(io.BytesIO(file_content))
 
-    # Standardize driver names for matching
+    # Padroniza nomes de motoristas para correspondência
     df['CONDUTOR_NORMALIZED'] = df['Condutor'].str.strip().str.upper()
 
-    # Convert date columns to datetime
+    # Converte colunas de data para datetime
     df['Data Cadastro'] = pd.to_datetime(df['Data Cadastro'], format='%d/%m/%Y %H:%M:%S')
     df['Data Geração'] = pd.to_datetime(df['Data Geração'], format='%d/%m/%Y %H:%M:%S')
 
-    # Create separate date and time columns for both dates
+    # Cria colunas separadas de data e hora para ambas as datas
     df['DATA_SEPARADA_CADASTRO'] = df['Data Cadastro'].dt.strftime('%d/%m/%Y')
     df['HORA_CADASTRO'] = df['Data Cadastro'].dt.strftime('%H:%M:%S')
     df['DATA_SEPARADA_GERACAO'] = df['Data Geração'].dt.strftime('%d/%m/%Y')
     df['HORA_GERACAO'] = df['Data Geração'].dt.strftime('%H:%M:%S')
 
-    # Convert latitude and longitude to numeric (handle comma decimal separator)
+    # Converte latitude e longitude para numérico (trata separador decimal de vírgula)
     df['Latitude'] = df['Latitude'].astype(str).str.replace(',', '.').astype(float)
     df['Longitude'] = df['Longitude'].astype(str).str.replace(',', '.').astype(float)
 
-    # Add source identifier
+    # Adiciona identificador de origem
     df['ORIGEM'] = 'ATS'
 
     return df
@@ -78,8 +113,21 @@ def load_and_prepare_jornada_data(file_content, filename):
 
 @st.cache_data(ttl=3600)
 def calculate_working_hours(onix_df, jornada_df):
-    """Calculate working hours for each driver from both sources."""
-    # Define work start/end indicators
+    """Calcula as horas de trabalho para cada motorista a partir de ambas as fontes.
+
+    Itera sobre motoristas comuns em ambos os DataFrames para encontrar eventos de
+    início e fim de jornada, calculando o total de horas trabalhadas em cada sistema
+    e a diferença entre eles.
+
+    Args:
+        onix_df (pd.DataFrame): DataFrame com os dados processados do ONIX.
+        jornada_df (pd.DataFrame): DataFrame com os dados processados do Jornada.
+
+    Returns:
+        pd.DataFrame: Um DataFrame de resumo contendo as horas de trabalho calculadas
+                      e contagens de eventos para cada motorista.
+    """
+    # Define indicadores de início/fim de trabalho
     onix_work_starts = ['INICIO DE VIAGEM', 'INICIO DE VIAGEM CARREGADO', 'REINICIO DE VIAGEM']
     onix_work_ends = ['FIM DE VIAGEM', 'FIM DE JORNADA']
     jornada_work_starts = ['Inicio de jornada']
@@ -87,7 +135,7 @@ def calculate_working_hours(onix_df, jornada_df):
 
     working_hours_summary = []
 
-    # Find common drivers
+    # Encontra motoristas comuns
     onix_drivers = set(onix_df['MOTORISTA_NORMALIZED'])
     jornada_drivers = set(jornada_df['CONDUTOR_NORMALIZED'])
     common_drivers = onix_drivers.intersection(jornada_drivers)
@@ -104,7 +152,7 @@ def calculate_working_hours(onix_df, jornada_df):
             'HOURS_DIFFERENCE': 0,
         }
 
-        # ONIX working hours calculation
+        # Cálculo de horas de trabalho do ONIX
         onix_driver_data = onix_df[onix_df['MOTORISTA_NORMALIZED'] == driver].copy()
         onix_starts = onix_driver_data[onix_driver_data['MACRO'].isin(onix_work_starts)].sort_values('DATA')
         onix_ends = onix_driver_data[onix_driver_data['MACRO'].isin(onix_work_ends)].sort_values('DATA')
@@ -112,11 +160,11 @@ def calculate_working_hours(onix_df, jornada_df):
         driver_summary['ONIX_WORK_STARTS'] = len(onix_starts)
         driver_summary['ONIX_WORK_ENDS'] = len(onix_ends)
 
-        # Calculate ONIX total working hours
+        # Calcula o total de horas de trabalho do ONIX
         onix_total_hours = 0
         for _, start_row in onix_starts.iterrows():
             start_time = start_row['DATA']
-            # Find the next work end after this start
+            # Encontra o próximo fim de trabalho após este início
             next_ends = onix_ends[onix_ends['DATA'] > start_time]
             if len(next_ends) > 0:
                 end_time = next_ends.iloc[0]['DATA']
@@ -125,7 +173,7 @@ def calculate_working_hours(onix_df, jornada_df):
 
         driver_summary['ONIX_TOTAL_HOURS'] = round(onix_total_hours, 2)
 
-        # Jornada working hours calculation
+        # Cálculo de horas de trabalho do Jornada
         jornada_driver_data = jornada_df[jornada_df['CONDUTOR_NORMALIZED'] == driver].copy()
         jornada_starts = jornada_driver_data[jornada_driver_data['Status Gerado'].isin(jornada_work_starts)].sort_values('Data Cadastro')
         jornada_ends = jornada_driver_data[jornada_driver_data['Status Gerado'].isin(jornada_work_ends)].sort_values('Data Cadastro')
@@ -133,11 +181,11 @@ def calculate_working_hours(onix_df, jornada_df):
         driver_summary['JORNADA_WORK_STARTS'] = len(jornada_starts)
         driver_summary['JORNADA_WORK_ENDS'] = len(jornada_ends)
 
-        # Calculate Jornada total working hours
+        # Calcula o total de horas de trabalho do Jornada
         jornada_total_hours = 0
         for _, start_row in jornada_starts.iterrows():
             start_time = start_row['Data Cadastro']
-            # Find the next work end after this start
+            # Encontra o próximo fim de trabalho após este início
             next_ends = jornada_ends[jornada_ends['Data Cadastro'] > start_time]
             if len(next_ends) > 0:
                 end_time = next_ends.iloc[0]['Data Cadastro']
@@ -146,7 +194,7 @@ def calculate_working_hours(onix_df, jornada_df):
 
         driver_summary['JORNADA_TOTAL_HOURS'] = round(jornada_total_hours, 2)
 
-        # Calculate difference
+        # Calcula a diferença
         driver_summary['HOURS_DIFFERENCE'] = round(driver_summary['ONIX_TOTAL_HOURS'] - driver_summary['JORNADA_TOTAL_HOURS'], 2)
 
         working_hours_summary.append(driver_summary)
@@ -156,8 +204,20 @@ def calculate_working_hours(onix_df, jornada_df):
 
 @st.cache_data(ttl=3600)
 def merge_data(onix_df, jornada_df):
-    """Merge ONIX and Jornada data based on driver names and dates."""
-    # Find common drivers
+    """Mescla os dados do ONIX e do Jornada com base nos nomes dos motoristas e datas.
+
+    Para cada registro do ONIX, esta função procura o registro correspondente mais
+    próximo no tempo no DataFrame do Jornada (dentro do mesmo dia) e os combina
+    em um único registro.
+
+    Args:
+        onix_df (pd.DataFrame): DataFrame com os dados processados do ONIX.
+        jornada_df (pd.DataFrame): DataFrame com os dados processados do Jornada.
+
+    Returns:
+        pd.DataFrame: Um DataFrame mesclado contendo dados de ambas as fontes.
+    """
+    # Encontra motoristas comuns
     onix_drivers = set(onix_df['MOTORISTA_NORMALIZED'])
     jornada_drivers = set(jornada_df['CONDUTOR_NORMALIZED'])
     common_drivers = onix_drivers.intersection(jornada_drivers)
@@ -165,26 +225,26 @@ def merge_data(onix_df, jornada_df):
     merged_records = []
 
     for driver in common_drivers:
-        # Get data for this driver from both sources
+        # Obtém dados para este motorista de ambas as fontes
         onix_driver_data = onix_df[onix_df['MOTORISTA_NORMALIZED'] == driver].copy()
         jornada_driver_data = jornada_df[jornada_df['CONDUTOR_NORMALIZED'] == driver].copy()
 
-        # For each ONIX record, find the closest Jornada record by time
+        # Para cada registro do ONIX, encontra o registro mais próximo do Jornada por tempo
         for _, onix_row in onix_driver_data.iterrows():
             onix_time = onix_row['DATA']
 
-            # Find the closest Jornada record by time (within same day)
+            # Encontra o registro mais próximo do Jornada por tempo (no mesmo dia)
             jornada_same_day = jornada_driver_data[jornada_driver_data['Data Cadastro'].dt.date == onix_time.date()]
 
             if len(jornada_same_day) > 0:
-                # Find the closest record by time difference
+                # Encontra o registro mais próximo pela diferença de tempo
                 time_diffs = abs((jornada_same_day['Data Cadastro'] - onix_time).dt.total_seconds())
                 closest_idx = time_diffs.idxmin()
                 closest_jornada = jornada_same_day.loc[closest_idx]
 
-                # Create merged record
+                # Cria o registro mesclado
                 merged_record = {
-                    # ONIX data
+                    # Dados do ONIX
                     'MOTORISTA': onix_row['MOTORISTA'],
                     'DATA_SEPARADA': onix_row['DATA_SEPARADA'],
                     'HORA': onix_row['HORA'],
@@ -193,7 +253,7 @@ def merge_data(onix_df, jornada_df):
                     'LONGITUDE': onix_row['LONGITUDE'],
                     'MACRO': onix_row['MACRO'],
                     'ORIGEM': onix_row['ORIGEM'],
-                    # Jornada data
+                    # Dados do Jornada
                     'CONDUTOR': closest_jornada['Condutor'],
                     'DATA_SEPARADA.1': closest_jornada['DATA_SEPARADA_CADASTRO'],
                     'HORA.1': closest_jornada['HORA_CADASTRO'],
@@ -204,9 +264,9 @@ def merge_data(onix_df, jornada_df):
                     'ORIGEM.1': closest_jornada['ORIGEM'],
                 }
             else:
-                # No matching Jornada record for this day, use ONIX data only
+                # Nenhum registro correspondente do Jornada para este dia, usa apenas dados do ONIX
                 merged_record = {
-                    # ONIX data
+                    # Dados do ONIX
                     'MOTORISTA': onix_row['MOTORISTA'],
                     'DATA_SEPARADA': onix_row['DATA_SEPARADA'],
                     'HORA': onix_row['HORA'],
@@ -215,7 +275,7 @@ def merge_data(onix_df, jornada_df):
                     'LONGITUDE': onix_row['LONGITUDE'],
                     'MACRO': onix_row['MACRO'],
                     'ORIGEM': onix_row['ORIGEM'],
-                    # Empty Jornada data
+                    # Dados vazios do Jornada
                     'CONDUTOR': None,
                     'DATA_SEPARADA.1': None,
                     'HORA.1': None,
@@ -228,7 +288,7 @@ def merge_data(onix_df, jornada_df):
 
             merged_records.append(merged_record)
 
-    # Convert to DataFrame
+    # Converte para DataFrame
     merged_df = pd.DataFrame(merged_records)
 
     return merged_df
@@ -236,8 +296,19 @@ def merge_data(onix_df, jornada_df):
 
 @st.cache_data(ttl=3600)
 def calculate_coordinate_analysis(consolidado_df):
-    """Calculate coordinate differences and statistics for each driver."""
-    # Filter records with both coordinate sets
+    """Calcula as diferenças de coordenadas e estatísticas para cada motorista.
+
+    Filtra registros que possuem ambos os conjuntos de coordenadas (ONIX e Jornada)
+    e calcula a distância Haversine, bem como as diferenças absolutas de latitude
+    e longitude. Agrupa os resultados por motorista.
+
+    Args:
+        consolidado_df (pd.DataFrame): O DataFrame mesclado contendo ambos os conjuntos de coordenadas.
+
+    Returns:
+        pd.DataFrame: Um DataFrame de resumo com estatísticas de coordenadas por motorista.
+    """
+    # Filtra registros com ambos os conjuntos de coordenadas
     coord_data = consolidado_df[
         consolidado_df['LATITUDE'].notna()
         & consolidado_df['LONGITUDE'].notna()
@@ -245,7 +316,7 @@ def calculate_coordinate_analysis(consolidado_df):
         & consolidado_df['LONGITUDE.1'].notna()
     ].copy()
 
-    # Calculate coordinate statistics by driver
+    # Calcula estatísticas de coordenadas por motorista
     driver_coord_stats = []
 
     for driver in coord_data['MOTORISTA'].unique():
@@ -256,11 +327,11 @@ def calculate_coordinate_analysis(consolidado_df):
         lon_diffs = []
 
         for _, row in driver_data.iterrows():
-            # Calculate distance
+            # Calcula a distância
             dist = haversine_distance(row['LATITUDE'], row['LONGITUDE'], row['LATITUDE.1'], row['LONGITUDE.1'])
             distances.append(dist)
 
-            # Calculate coordinate differences
+            # Calcula as diferenças de coordenadas
             lat_diff = abs(row['LATITUDE'] - row['LATITUDE.1'])
             lon_diff = abs(row['LONGITUDE'] - row['LONGITUDE.1'])
             lat_diffs.append(lat_diff)
@@ -285,7 +356,22 @@ def calculate_coordinate_analysis(consolidado_df):
 
 
 def save_analysis(analysis_name, onix_df, jornada_df, working_hours_df, coord_df, merged_df):
-    """Save analysis data to session state and local storage."""
+    """Salva os dados da análise no estado da sessão do Streamlit.
+
+    Armazena todos os DataFrames processados e metadados associados a uma análise
+    específica no `st.session_state` para acesso posterior.
+
+    Args:
+        analysis_name (str): O nome da análise a ser salva.
+        onix_df (pd.DataFrame): DataFrame de dados brutos do ONIX.
+        jornada_df (pd.DataFrame): DataFrame de dados brutos do Jornada.
+        working_hours_df (pd.DataFrame): DataFrame com o resumo das horas de trabalho.
+        coord_df (pd.DataFrame): DataFrame com a análise de coordenadas.
+        merged_df (pd.DataFrame): DataFrame com os dados mesclados.
+
+    Returns:
+        dict: Um dicionário contendo os metadados da análise salva.
+    """
     analysis_data = {
         'name': analysis_name,
         'created_at': datetime.now().isoformat(),
@@ -296,7 +382,7 @@ def save_analysis(analysis_name, onix_df, jornada_df, working_hours_df, coord_df
         'merged_records': len(merged_df),
     }
 
-    # Save to session state
+    # Salva no estado da sessão
     if 'saved_analyses' not in st.session_state:
         st.session_state.saved_analyses = {}
 
@@ -313,57 +399,81 @@ def save_analysis(analysis_name, onix_df, jornada_df, working_hours_df, coord_df
 
 
 def load_analysis(analysis_name):
-    """Load analysis data from session state."""
+    """Carrega os dados de uma análise a partir do estado da sessão.
+
+    Args:
+        analysis_name (str): O nome da análise a ser carregada.
+
+    Returns:
+        dict | None: Um dicionário contendo os dados da análise se encontrada,
+                      caso contrário, None.
+    """
     if 'saved_analyses' in st.session_state and analysis_name in st.session_state.saved_analyses:
         return st.session_state.saved_analyses[analysis_name]
     return None
 
 
 def get_analysis_list():
-    """Get list of saved analyses."""
+    """Obtém a lista de nomes de análises salvas.
+
+    Returns:
+        list: Uma lista de strings contendo os nomes de todas as análises
+              atualmente no estado da sessão.
+    """
     if 'saved_analyses' in st.session_state:
         return list(st.session_state.saved_analyses.keys())
     return []
 
 
 def create_summary_metrics(df):
-    """Create summary metrics cards."""
+    """Cria e exibe os cartões de métricas de resumo no Streamlit.
+
+    Args:
+        df (pd.DataFrame): O DataFrame de resumo das horas de trabalho.
+    """
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        st.metric(label="Total Drivers", value=len(df), delta=None)
+        st.metric(label="Total de Motoristas", value=len(df), delta=None)
 
     with col2:
         avg_onix = df['ONIX_TOTAL_HOURS'].mean()
-        st.metric(label="Avg ONIX Hours", value=f"{avg_onix:.1f}", delta=None)
+        st.metric(label="Média Horas ONIX", value=f"{avg_onix:.1f}", delta=None)
 
     with col3:
         avg_jornada = df['JORNADA_TOTAL_HOURS'].mean()
-        st.metric(label="Avg Jornada Hours", value=f"{avg_jornada:.1f}", delta=None)
+        st.metric(label="Média Horas Jornada", value=f"{avg_jornada:.1f}", delta=None)
 
     with col4:
         avg_diff = df['HOURS_DIFFERENCE'].mean()
         st.metric(
-            label="Avg Difference", value=f"{avg_diff:.1f}", delta=f"{avg_diff:.1f} hours" if avg_diff > 0 else f"{avg_diff:.1f} hours"
+            label="Média da Diferença", value=f"{avg_diff:.1f}", delta=f"{avg_diff:.1f} horas" if avg_diff > 0 else f"{avg_diff:.1f} horas"
         )
 
 
 def create_hours_comparison_chart(df):
-    """Create a scatter plot comparing ONIX vs Jornada hours."""
+    """Cria um gráfico de dispersão comparando as horas do ONIX vs. Jornada.
+
+    Args:
+        df (pd.DataFrame): O DataFrame de resumo das horas de trabalho.
+
+    Returns:
+        go.Figure: Um objeto de figura do Plotly contendo o gráfico de dispersão.
+    """
     fig = px.scatter(
         df,
         x='JORNADA_TOTAL_HOURS',
         y='ONIX_TOTAL_HOURS',
         hover_data=['DRIVER', 'HOURS_DIFFERENCE'],
-        title="ONIX vs Jornada Working Hours Comparison",
-        labels={'JORNADA_TOTAL_HOURS': 'Jornada Hours', 'ONIX_TOTAL_HOURS': 'ONIX Hours'},
+        title="Comparação de Horas de Trabalho: ONIX vs. Jornada",
+        labels={'JORNADA_TOTAL_HOURS': 'Horas Jornada', 'ONIX_TOTAL_HOURS': 'Horas ONIX'},
     )
 
-    # Add diagonal line for perfect correlation
+    # Adiciona linha diagonal para correlação perfeita
     max_val = max(df['ONIX_TOTAL_HOURS'].max(), df['JORNADA_TOTAL_HOURS'].max())
     fig.add_trace(
         go.Scatter(
-            x=[0, max_val], y=[0, max_val], mode='lines', line=dict(dash='dash', color='red'), name='Perfect Correlation', showlegend=True
+            x=[0, max_val], y=[0, max_val], mode='lines', line=dict(dash='dash', color='red'), name='Correlação Perfeita', showlegend=True
         )
     )
 
@@ -373,17 +483,24 @@ def create_hours_comparison_chart(df):
 
 
 def create_difference_distribution(df):
-    """Create a histogram of hour differences."""
+    """Cria um histograma da distribuição das diferenças de horas.
+
+    Args:
+        df (pd.DataFrame): O DataFrame de resumo das horas de trabalho.
+
+    Returns:
+        go.Figure: Um objeto de figura do Plotly contendo o histograma.
+    """
     fig = px.histogram(
         df,
         x='HOURS_DIFFERENCE',
         nbins=20,
-        title="Distribution of Hour Differences (ONIX - Jornada)",
-        labels={'HOURS_DIFFERENCE': 'Hour Difference', 'count': 'Number of Drivers'},
+        title="Distribuição das Diferenças de Horas (ONIX - Jornada)",
+        labels={'HOURS_DIFFERENCE': 'Diferença de Horas', 'count': 'Número de Motoristas'},
     )
 
-    # Add vertical line at zero
-    fig.add_vline(x=0, line_dash="dash", line_color="red", annotation_text="Zero Difference")
+    # Adiciona linha vertical no zero
+    fig.add_vline(x=0, line_dash="dash", line_color="red", annotation_text="Diferença Zero")
 
     fig.update_layout(height=400)
 
@@ -391,13 +508,21 @@ def create_difference_distribution(df):
 
 
 def create_top_drivers_chart(df, top_n=10):
-    """Create a bar chart of top drivers by hour difference."""
-    # Sort by absolute difference
+    """Cria um gráfico de barras dos principais motoristas por diferença de horas.
+
+    Args:
+        df (pd.DataFrame): O DataFrame de resumo das horas de trabalho.
+        top_n (int): O número de principais motoristas a serem exibidos.
+
+    Returns:
+        go.Figure: Um objeto de figura do Plotly contendo o gráfico de barras.
+    """
+    # Ordena pela diferença absoluta
     df_sorted = df.sort_values('HOURS_DIFFERENCE', key=abs, ascending=False).head(top_n)
 
     fig = go.Figure()
 
-    # Add bars for positive differences
+    # Adiciona barras para diferenças positivas
     positive_df = df_sorted[df_sorted['HOURS_DIFFERENCE'] > 0]
     if len(positive_df) > 0:
         fig.add_trace(
@@ -411,7 +536,7 @@ def create_top_drivers_chart(df, top_n=10):
             )
         )
 
-    # Add bars for negative differences
+    # Adiciona barras para diferenças negativas
     negative_df = df_sorted[df_sorted['HOURS_DIFFERENCE'] < 0]
     if len(negative_df) > 0:
         fig.add_trace(
@@ -426,9 +551,9 @@ def create_top_drivers_chart(df, top_n=10):
         )
 
     fig.update_layout(
-        title=f"Top {top_n} Drivers by Hour Difference",
-        xaxis_title="Driver",
-        yaxis_title="Hour Difference (ONIX - Jornada)",
+        title=f"Top {top_n} Motoristas por Diferença de Horas",
+        xaxis_title="Motorista",
+        yaxis_title="Diferença de Horas (ONIX - Jornada)",
         height=500,
         xaxis_tickangle=-45,
     )
@@ -437,44 +562,51 @@ def create_top_drivers_chart(df, top_n=10):
 
 
 def create_work_sessions_chart(df):
-    """Create a chart comparing work sessions between systems."""
+    """Cria um gráfico comparando as sessões de trabalho entre os sistemas.
+
+    Args:
+        df (pd.DataFrame): O DataFrame de resumo das horas de trabalho.
+
+    Returns:
+        go.Figure: Um objeto de figura do Plotly contendo os subplots.
+    """
     fig = make_subplots(
         rows=2,
         cols=2,
-        subplot_titles=('Work Starts', 'Work Ends', 'Total Hours', 'Hour Differences'),
+        subplot_titles=('Inícios de Trabalho', 'Fins de Trabalho', 'Total de Horas', 'Diferenças de Horas'),
         specs=[[{"secondary_y": False}, {"secondary_y": False}], [{"secondary_y": False}, {"secondary_y": False}]],
     )
 
-    # Work starts comparison
+    # Comparação de inícios de trabalho
     fig.add_trace(
-        go.Scatter(x=df['DRIVER'], y=df['ONIX_WORK_STARTS'], mode='markers', name='ONIX Starts', marker=dict(color='blue')), row=1, col=1
+        go.Scatter(x=df['DRIVER'], y=df['ONIX_WORK_STARTS'], mode='markers', name='Inícios ONIX', marker=dict(color='blue')), row=1, col=1
     )
 
     fig.add_trace(
-        go.Scatter(x=df['DRIVER'], y=df['JORNADA_WORK_STARTS'], mode='markers', name='Jornada Starts', marker=dict(color='orange')),
+        go.Scatter(x=df['DRIVER'], y=df['JORNADA_WORK_STARTS'], mode='markers', name='Inícios Jornada', marker=dict(color='orange')),
         row=1,
         col=1,
     )
 
-    # Work ends comparison
+    # Comparação de fins de trabalho
     fig.add_trace(
-        go.Scatter(x=df['DRIVER'], y=df['ONIX_WORK_ENDS'], mode='markers', name='ONIX Ends', marker=dict(color='blue'), showlegend=False),
+        go.Scatter(x=df['DRIVER'], y=df['ONIX_WORK_ENDS'], mode='markers', name='Fins ONIX', marker=dict(color='blue'), showlegend=False),
         row=1,
         col=2,
     )
 
     fig.add_trace(
         go.Scatter(
-            x=df['DRIVER'], y=df['JORNADA_WORK_ENDS'], mode='markers', name='Jornada Ends', marker=dict(color='orange'), showlegend=False
+            x=df['DRIVER'], y=df['JORNADA_WORK_ENDS'], mode='markers', name='Fins Jornada', marker=dict(color='orange'), showlegend=False
         ),
         row=1,
         col=2,
     )
 
-    # Total hours comparison
+    # Comparação de total de horas
     fig.add_trace(
         go.Scatter(
-            x=df['DRIVER'], y=df['ONIX_TOTAL_HOURS'], mode='markers', name='ONIX Hours', marker=dict(color='blue'), showlegend=False
+            x=df['DRIVER'], y=df['ONIX_TOTAL_HOURS'], mode='markers', name='Horas ONIX', marker=dict(color='blue'), showlegend=False
         ),
         row=2,
         col=1,
@@ -482,21 +614,21 @@ def create_work_sessions_chart(df):
 
     fig.add_trace(
         go.Scatter(
-            x=df['DRIVER'], y=df['JORNADA_TOTAL_HOURS'], mode='markers', name='Jornada Hours', marker=dict(color='orange'), showlegend=False
+            x=df['DRIVER'], y=df['JORNADA_TOTAL_HOURS'], mode='markers', name='Horas Jornada', marker=dict(color='orange'), showlegend=False
         ),
         row=2,
         col=1,
     )
 
-    # Hour differences
+    # Diferenças de horas
     colors = ['green' if x > 0 else 'red' for x in df['HOURS_DIFFERENCE']]
     fig.add_trace(
-        go.Bar(x=df['DRIVER'], y=df['HOURS_DIFFERENCE'], name='Difference', marker=dict(color=colors), showlegend=False), row=2, col=2
+        go.Bar(x=df['DRIVER'], y=df['HOURS_DIFFERENCE'], name='Diferença', marker=dict(color=colors), showlegend=False), row=2, col=2
     )
 
-    fig.update_layout(height=800, title_text="Work Sessions Analysis", showlegend=True)
+    fig.update_layout(height=800, title_text="Análise de Sessões de Trabalho", showlegend=True)
 
-    # Update x-axis labels for all subplots
+    # Atualiza os rótulos do eixo x para todos os subplots
     for i in range(1, 3):
         for j in range(1, 3):
             fig.update_xaxes(tickangle=-45, row=i, col=j)
@@ -505,24 +637,38 @@ def create_work_sessions_chart(df):
 
 
 def create_coordinate_distance_chart(coord_df):
-    """Create a chart showing coordinate distances between systems."""
+    """Cria um gráfico mostrando as distâncias de coordenadas entre os sistemas.
+
+    Args:
+        coord_df (pd.DataFrame): DataFrame com a análise de coordenadas.
+
+    Returns:
+        go.Figure: Um objeto de figura do Plotly contendo o gráfico de barras.
+    """
     fig = px.bar(
         coord_df.sort_values('AVG_DISTANCE_KM', ascending=False).head(15),
         x='DRIVER',
         y='AVG_DISTANCE_KM',
-        title="Top 15 Drivers by Average Coordinate Distance (ONIX vs Jornada)",
-        labels={'AVG_DISTANCE_KM': 'Average Distance (km)', 'DRIVER': 'Driver'},
+        title="Top 15 Motoristas por Distância Média de Coordenadas (ONIX vs Jornada)",
+        labels={'AVG_DISTANCE_KM': 'Distância Média (km)', 'DRIVER': 'Motorista'},
         color='AVG_DISTANCE_KM',
         color_continuous_scale='Reds',
     )
 
-    fig.update_layout(height=500, xaxis_tickangle=-45, coloraxis_colorbar=dict(title="Distance (km)"))
+    fig.update_layout(height=500, xaxis_tickangle=-45, coloraxis_colorbar=dict(title="Distância (km)"))
 
     return fig
 
 
 def create_coordinate_scatter_plot(coord_df):
-    """Create a scatter plot showing coordinate accuracy vs working hours."""
+    """Cria um gráfico de dispersão mostrando a precisão das coordenadas vs. horas de trabalho.
+
+    Args:
+        coord_df (pd.DataFrame): DataFrame com a análise de coordenadas.
+
+    Returns:
+        go.Figure: Um objeto de figura do Plotly contendo o gráfico de dispersão.
+    """
     fig = px.scatter(
         coord_df,
         x='AVG_DISTANCE_KM',
@@ -530,11 +676,11 @@ def create_coordinate_scatter_plot(coord_df):
         size='MAX_DISTANCE_KM',
         color='AVG_DISTANCE_KM',
         hover_data=['DRIVER', 'AVG_DISTANCE_KM', 'MAX_DISTANCE_KM', 'STD_DISTANCE_KM'],
-        title="Coordinate Data Coverage vs Distance Accuracy",
+        title="Cobertura de Dados de Coordenadas vs. Precisão da Distância",
         labels={
-            'AVG_DISTANCE_KM': 'Average Distance (km)',
-            'RECORDS_WITH_COORDS': 'Records with Coordinates',
-            'MAX_DISTANCE_KM': 'Max Distance (km)',
+            'AVG_DISTANCE_KM': 'Distância Média (km)',
+            'RECORDS_WITH_COORDS': 'Registros com Coordenadas',
+            'MAX_DISTANCE_KM': 'Distância Máxima (km)',
         },
     )
 
@@ -544,13 +690,20 @@ def create_coordinate_scatter_plot(coord_df):
 
 
 def create_coordinate_distribution_chart(coord_df):
-    """Create a histogram of coordinate distances."""
+    """Cria um histograma das distâncias de coordenadas.
+
+    Args:
+        coord_df (pd.DataFrame): DataFrame com a análise de coordenadas.
+
+    Returns:
+        go.Figure: Um objeto de figura do Plotly contendo o histograma.
+    """
     fig = px.histogram(
         coord_df,
         x='AVG_DISTANCE_KM',
         nbins=20,
-        title="Distribution of Average Coordinate Distances",
-        labels={'AVG_DISTANCE_KM': 'Average Distance (km)', 'count': 'Number of Drivers'},
+        title="Distribuição das Distâncias Médias de Coordenadas",
+        labels={'AVG_DISTANCE_KM': 'Distância Média (km)', 'count': 'Número de Motoristas'},
     )
 
     fig.update_layout(height=400)
@@ -559,7 +712,17 @@ def create_coordinate_distribution_chart(coord_df):
 
 
 def create_path_timeline_map(consolidado_df, driver_name, max_points=200):
-    """Create a map showing chronological path timeline for a specific driver."""
+    """Cria um mapa mostrando a linha do tempo cronológica do trajeto para um motorista.
+
+    Args:
+        consolidado_df (pd.DataFrame): O DataFrame mesclado.
+        driver_name (str): O nome do motorista a ser visualizado.
+        max_points (int): O número máximo de pontos a serem exibidos no mapa para evitar lentidão.
+
+    Returns:
+        go.Figure | None: Um objeto de figura do Plotly com o mapa, ou None se não houver
+                           dados de coordenadas para o motorista.
+    """
     driver_data = consolidado_df[
         (consolidado_df['MOTORISTA'] == driver_name)
         & consolidado_df['LATITUDE'].notna()
@@ -571,18 +734,18 @@ def create_path_timeline_map(consolidado_df, driver_name, max_points=200):
     if len(driver_data) == 0:
         return None
 
-    # Convert time strings to datetime for proper sorting
+    # Converte strings de tempo para datetime para ordenação adequada
     driver_data['DATETIME_ONIX'] = pd.to_datetime(driver_data['DATA_SEPARADA'] + ' ' + driver_data['HORA'], format='%d/%m/%Y %H:%M:%S')
 
-    # Sort by ONIX datetime
+    # Ordena por datetime do ONIX
     driver_data = driver_data.sort_values('DATETIME_ONIX')
 
-    # Sample data if too many points
+    # Amostra os dados se houver muitos pontos
     if len(driver_data) > max_points:
         step = len(driver_data) // max_points
         driver_data = driver_data.iloc[::step]
 
-    # Calculate distances
+    # Calcula as distâncias
     distances = []
     for _, row in driver_data.iterrows():
         dist = haversine_distance(row['LATITUDE'], row['LONGITUDE'], row['LATITUDE.1'], row['LONGITUDE.1'])
@@ -590,17 +753,17 @@ def create_path_timeline_map(consolidado_df, driver_name, max_points=200):
 
     driver_data['DISTANCE_KM'] = distances
 
-    # Create time-based color scale
+    # Cria escala de cores baseada no tempo
     min_time = driver_data['DATETIME_ONIX'].min()
     max_time = driver_data['DATETIME_ONIX'].max()
     time_range = (max_time - min_time).total_seconds()
 
-    # Normalize time for color scale (0 to 1)
+    # Normaliza o tempo para a escala de cores (0 a 1)
     driver_data['TIME_NORMALIZED'] = (driver_data['DATETIME_ONIX'] - min_time).dt.total_seconds() / time_range if time_range > 0 else 0
 
     fig = go.Figure()
 
-    # Add ONIX path with time-based colors
+    # Adiciona trajeto do ONIX com cores baseadas no tempo
     fig.add_trace(
         go.Scattermapbox(
             lat=driver_data['LATITUDE'],
@@ -611,7 +774,7 @@ def create_path_timeline_map(consolidado_df, driver_name, max_points=200):
                 color=driver_data['TIME_NORMALIZED'],
                 colorscale='Viridis',
                 colorbar=dict(
-                    title="Time Progress",
+                    title="Progresso do Tempo",
                     tickmode='array',
                     tickvals=[0, 0.25, 0.5, 0.75, 1],
                     ticktext=[
@@ -625,13 +788,13 @@ def create_path_timeline_map(consolidado_df, driver_name, max_points=200):
                 showscale=True,
             ),
             line=dict(width=2, color='blue'),
-            name='ONIX Path',
+            name='Trajeto ONIX',
             text=driver_data['DATA_SEPARADA'] + ' ' + driver_data['HORA'],
-            hovertemplate='<b>ONIX Path</b><br>Time: %{text}<br>Lat: %{lat:.6f}<br>Lon: %{lon:.6f}<extra></extra>',
+            hovertemplate='<b>Trajeto ONIX</b><br>Tempo: %{text}<br>Lat: %{lat:.6f}<br>Lon: %{lon:.6f}<extra></extra>',
         )
     )
 
-    # Add Jornada path with time-based colors
+    # Adiciona trajeto do Jornada com cores baseadas no tempo
     fig.add_trace(
         go.Scattermapbox(
             lat=driver_data['LATITUDE.1'],
@@ -642,7 +805,7 @@ def create_path_timeline_map(consolidado_df, driver_name, max_points=200):
                 color=driver_data['TIME_NORMALIZED'],
                 colorscale='Plasma',
                 colorbar=dict(
-                    title="Time Progress",
+                    title="Progresso do Tempo",
                     tickmode='array',
                     tickvals=[0, 0.25, 0.5, 0.75, 1],
                     ticktext=[
@@ -656,13 +819,13 @@ def create_path_timeline_map(consolidado_df, driver_name, max_points=200):
                 showscale=True,
             ),
             line=dict(width=2, color='red'),
-            name='Jornada Path',
+            name='Trajeto Jornada',
             text=driver_data['DATA_SEPARADA.1'] + ' ' + driver_data['HORA.1'],
-            hovertemplate='<b>Jornada Path</b><br>Time: %{text}<br>Lat: %{lat:.6f}<br>Lon: %{lon:.6f}<extra></extra>',
+            hovertemplate='<b>Trajeto Jornada</b><br>Tempo: %{text}<br>Lat: %{lat:.6f}<br>Lon: %{lon:.6f}<extra></extra>',
         )
     )
 
-    # Add connection lines between ONIX and Jornada points
+    # Adiciona linhas de conexão entre os pontos ONIX e Jornada
     for _, row in driver_data.iterrows():
         fig.add_trace(
             go.Scattermapbox(
@@ -675,12 +838,12 @@ def create_path_timeline_map(consolidado_df, driver_name, max_points=200):
             )
         )
 
-    # Calculate center point
+    # Calcula o ponto central
     all_lats = list(driver_data['LATITUDE']) + list(driver_data['LATITUDE.1'])
     all_lons = list(driver_data['LONGITUDE']) + list(driver_data['LONGITUDE.1'])
 
     fig.update_layout(
-        title=f"Path Timeline Map - {driver_name}<br><sub>Blue: ONIX Path | Red: Jornada Path | Gray: Connections</sub>",
+        title=f"Mapa de Linha do Tempo do Trajeto - {driver_name}<br><sub>Azul: Trajeto ONIX | Vermelho: Trajeto Jornada | Cinza: Conexões</sub>",
         mapbox=dict(style="open-street-map", center=dict(lat=np.mean(all_lats), lon=np.mean(all_lons)), zoom=11),
         height=700,
         showlegend=True,
@@ -690,81 +853,86 @@ def create_path_timeline_map(consolidado_df, driver_name, max_points=200):
 
 
 def main():
-    """Main Streamlit application."""
-    st.set_page_config(page_title="Working Hours & Coordinates Analysis Dashboard", page_icon="⏰", layout="wide")
+    """Função principal que executa a aplicação Streamlit.
 
-    st.title("⏰ Working Hours & Coordinates Analysis Dashboard")
-    st.markdown("Compare working hours and coordinate accuracy between ONIX and Jornada systems")
+    Configura a página, gerencia o estado da sessão, o upload de arquivos,
+    a seleção de análises e renderiza a interface do usuário com abas
+    para diferentes visualizações de dados.
+    """
+    st.set_page_config(page_title="Dashboard de Análise de Horas e Coordenadas", page_icon="⏰", layout="wide")
 
-    # Sidebar for analysis management
-    st.sidebar.header("📁 Analysis Management")
+    st.title("⏰ Dashboard de Análise de Horas e Coordenadas")
+    st.markdown("Compare horas de trabalho e precisão de coordenadas entre os sistemas ONIX e Jornada")
 
-    # File upload section
-    st.sidebar.subheader("📤 Upload New Files")
+    # Barra lateral para gerenciamento de análises
+    st.sidebar.header("📁 Gerenciamento de Análises")
 
-    uploaded_onix = st.sidebar.file_uploader("Upload ONIX Excel File", type=['xlsx', 'xls'], key="onix_upload")
+    # Seção de upload de arquivos
+    st.sidebar.subheader("📤 Carregar Novos Arquivos")
 
-    uploaded_jornada = st.sidebar.file_uploader("Upload Jornada Excel File", type=['xlsx', 'xls'], key="jornada_upload")
+    uploaded_onix = st.sidebar.file_uploader("Carregar Arquivo ONIX (Excel)", type=['xlsx', 'xls'], key="onix_upload")
 
-    # Analysis creation
+    uploaded_jornada = st.sidebar.file_uploader("Carregar Arquivo Jornada (Excel)", type=['xlsx', 'xls'], key="jornada_upload")
+
+    # Criação de análise
     if uploaded_onix and uploaded_jornada:
-        st.sidebar.subheader("🔬 Create New Analysis")
+        st.sidebar.subheader("🔬 Criar Nova Análise")
 
         analysis_name = st.sidebar.text_input(
-            "Analysis Name", value=f"Analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}", key="analysis_name"
+            "Nome da Análise", value=f"Analise_{datetime.now().strftime('%Y%m%d_%H%M%S')}", key="analysis_name"
         )
 
-        if st.sidebar.button("🚀 Process Files", key="process_files"):
-            with st.spinner("Processing files..."):
+        if st.sidebar.button("🚀 Processar Arquivos", key="process_files"):
+            with st.spinner("Processando arquivos..."):
                 try:
-                    # Load and prepare data
+                    # Carrega e prepara os dados
                     onix_df = load_and_prepare_onix_data(uploaded_onix.read(), uploaded_onix.name)
                     jornada_df = load_and_prepare_jornada_data(uploaded_jornada.read(), uploaded_jornada.name)
 
-                    # Calculate working hours
+                    # Calcula as horas de trabalho
                     working_hours_df = calculate_working_hours(onix_df, jornada_df)
 
-                    # Merge data
+                    # Mescla os dados
                     merged_df = merge_data(onix_df, jornada_df)
 
-                    # Calculate coordinate analysis
+                    # Calcula a análise de coordenadas
                     coord_df = calculate_coordinate_analysis(merged_df)
 
-                    # Save analysis
+                    # Salva a análise
                     analysis_data = save_analysis(analysis_name, onix_df, jornada_df, working_hours_df, coord_df, merged_df)
 
-                    st.sidebar.success(f"✅ Analysis '{analysis_name}' created successfully!")
+                    st.sidebar.success(f"✅ Análise '{analysis_name}' criada com sucesso!")
                     st.sidebar.json(analysis_data)
 
-                    # Set as current analysis
+                    # Define como análise atual
                     st.session_state.current_analysis = analysis_name
 
                 except Exception as e:
-                    st.sidebar.error(f"❌ Error processing files: {str(e)}")
+                    st.sidebar.error(f"❌ Erro ao processar arquivos: {str(e)}")
 
-    # Analysis selection
-    st.sidebar.subheader("📊 Select Analysis")
+    # Seleção de análise
+    st.sidebar.subheader("📊 Selecionar Análise")
 
     analysis_list = get_analysis_list()
     if analysis_list:
-        selected_analysis = st.sidebar.selectbox("Choose Analysis", analysis_list, key="analysis_select")
+        selected_analysis = st.sidebar.selectbox("Escolher Análise", analysis_list, key="analysis_select")
 
-        if st.sidebar.button("📈 Load Analysis", key="load_analysis"):
+        if st.sidebar.button("📈 Carregar Análise", key="load_analysis"):
             st.session_state.current_analysis = selected_analysis
 
-        # Analysis comparison
+        # Comparação de análises
         if len(analysis_list) > 1:
-            st.sidebar.subheader("🔄 Compare Analyses")
+            st.sidebar.subheader("🔄 Comparar Análises")
             compare_analysis = st.sidebar.selectbox(
-                "Compare with", [None] + [a for a in analysis_list if a != selected_analysis], key="compare_analysis"
+                "Comparar com", [None] + [a for a in analysis_list if a != selected_analysis], key="compare_analysis"
             )
 
-            if compare_analysis and st.sidebar.button("📊 Compare", key="compare_button"):
+            if compare_analysis and st.sidebar.button("📊 Comparar", key="compare_button"):
                 st.session_state.compare_analysis = compare_analysis
     else:
-        st.sidebar.info("No analyses available. Upload files to create one.")
+        st.sidebar.info("Nenhuma análise disponível. Carregue arquivos para criar uma.")
 
-    # Main content area
+    # Área de conteúdo principal
     if 'current_analysis' in st.session_state:
         current_analysis = st.session_state.current_analysis
         analysis_data = load_analysis(current_analysis)
@@ -774,32 +942,32 @@ def main():
             coord_df = analysis_data['coord_df']
             consolidado_df = analysis_data['merged_df']
 
-            # Analysis header
-            st.header(f"📊 Analysis: {current_analysis}")
+            # Cabeçalho da análise
+            st.header(f"📊 Análise: {current_analysis}")
 
-            # Analysis metadata
+            # Metadados da análise
             metadata = analysis_data['metadata']
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("ONIX Records", metadata['onix_records'])
+                st.metric("Registros ONIX", metadata['onix_records'])
             with col2:
-                st.metric("Jornada Records", metadata['jornada_records'])
+                st.metric("Registros Jornada", metadata['jornada_records'])
             with col3:
-                st.metric("Working Hours Drivers", metadata['working_hours_drivers'])
+                st.metric("Motoristas (Horas)", metadata['working_hours_drivers'])
             with col4:
-                st.metric("Coordinate Drivers", metadata['coordinate_drivers'])
+                st.metric("Motoristas (Coord.)", metadata['coordinate_drivers'])
 
-            # Create tabs for different analyses
-            tab1, tab2, tab3 = st.tabs(["📊 Working Hours Analysis", "🗺️ Coordinate Analysis", "🔍 Driver Details"])
+            # Cria abas para diferentes análises
+            tab1, tab2, tab3 = st.tabs(["📊 Análise de Horas de Trabalho", "🗺️ Análise de Coordenadas", "🔍 Detalhes do Motorista"])
 
             with tab1:
-                # Working Hours Analysis
-                st.header("📊 Working Hours Analysis")
+                # Análise de Horas de Trabalho
+                st.header("📊 Análise de Horas de Trabalho")
 
-                # Summary metrics
+                # Métricas de resumo
                 create_summary_metrics(df)
 
-                # Main charts
+                # Gráficos principais
                 col1, col2 = st.columns(2)
 
                 with col1:
@@ -808,38 +976,38 @@ def main():
                 with col2:
                     st.plotly_chart(create_difference_distribution(df), use_container_width=True)
 
-                # Top drivers chart
-                st.header("🏆 Top Drivers by Hour Difference")
-                top_n = st.slider("Number of top drivers to show", 5, 20, 10, key="top_n_hours")
+                # Gráfico dos principais motoristas
+                st.header("🏆 Top Motoristas por Diferença de Horas")
+                top_n = st.slider("Número de motoristas para exibir", 5, 20, 10, key="top_n_hours")
                 st.plotly_chart(create_top_drivers_chart(df, top_n), use_container_width=True)
 
-                # Detailed work sessions analysis
-                st.header("🔍 Detailed Work Sessions Analysis")
+                # Análise detalhada das sessões de trabalho
+                st.header("🔍 Análise Detalhada das Sessões de Trabalho")
                 st.plotly_chart(create_work_sessions_chart(df), use_container_width=True)
 
             with tab2:
-                # Coordinate Analysis
-                st.header("🗺️ Coordinate Analysis")
+                # Análise de Coordenadas
+                st.header("🗺️ Análise de Coordenadas")
 
-                # Coordinate summary metrics
+                # Métricas de resumo de coordenadas
                 col1, col2, col3, col4 = st.columns(4)
 
                 with col1:
-                    st.metric(label="Total Drivers", value=len(coord_df), delta=None)
+                    st.metric(label="Total de Motoristas", value=len(coord_df), delta=None)
 
                 with col2:
                     avg_distance = coord_df['AVG_DISTANCE_KM'].mean()
-                    st.metric(label="Avg Distance", value=f"{avg_distance:.1f} km", delta=None)
+                    st.metric(label="Distância Média", value=f"{avg_distance:.1f} km", delta=None)
 
                 with col3:
                     max_distance = coord_df['AVG_DISTANCE_KM'].max()
-                    st.metric(label="Max Distance", value=f"{max_distance:.1f} km", delta=None)
+                    st.metric(label="Distância Máxima", value=f"{max_distance:.1f} km", delta=None)
 
                 with col4:
                     min_distance = coord_df['AVG_DISTANCE_KM'].min()
-                    st.metric(label="Min Distance", value=f"{min_distance:.1f} km", delta=None)
+                    st.metric(label="Distância Mínima", value=f"{min_distance:.1f} km", delta=None)
 
-                # Coordinate charts
+                # Gráficos de coordenadas
                 col1, col2 = st.columns(2)
 
                 with col1:
@@ -848,38 +1016,38 @@ def main():
                 with col2:
                     st.plotly_chart(create_coordinate_scatter_plot(coord_df), use_container_width=True)
 
-                # Distribution chart
+                # Gráfico de distribuição
                 st.plotly_chart(create_coordinate_distribution_chart(coord_df), use_container_width=True)
 
-                # Path Timeline Maps Section
-                st.header("🛣️ Path Timeline Maps")
+                # Seção de Mapas de Linha do Tempo
+                st.header("🛣️ Mapas de Linha do Tempo do Trajeto")
 
-                # Map type selection
-                map_type = st.radio("Select Map Type", ["Single Driver Timeline", "Multi-Driver Comparison"], key="map_type")
+                # Seleção do tipo de mapa
+                map_type = st.radio("Selecionar Tipo de Mapa", ["Linha do Tempo de Um Motorista", "Comparação de Múltiplos Motoristas"], key="map_type")
 
-                if map_type == "Single Driver Timeline":
-                    # Single driver timeline map
+                if map_type == "Linha do Tempo de Um Motorista":
+                    # Mapa de linha do tempo de um motorista
                     selected_driver_timeline = st.selectbox(
-                        "Select Driver for Timeline Map", sorted(coord_df['DRIVER'].tolist()), key="timeline_driver"
+                        "Selecionar Motorista para Mapa de Linha do Tempo", sorted(coord_df['DRIVER'].tolist()), key="timeline_driver"
                     )
 
                     if selected_driver_timeline:
-                        # Map controls
+                        # Controles do mapa
                         col1, col2 = st.columns(2)
                         with col1:
                             max_points = st.slider(
-                                "Max Points to Display", min_value=50, max_value=500, value=200, key="max_points_timeline"
+                                "Máximo de Pontos a Exibir", min_value=50, max_value=500, value=200, key="max_points_timeline"
                             )
 
                         with col2:
-                            show_connections = st.checkbox("Show Connection Lines", value=True, key="show_connections")
+                            show_connections = st.checkbox("Mostrar Linhas de Conexão", value=True, key="show_connections")
 
-                        # Generate timeline map
+                        # Gera o mapa de linha do tempo
                         timeline_map = create_path_timeline_map(consolidado_df, selected_driver_timeline, max_points)
                         if timeline_map:
                             st.plotly_chart(timeline_map, use_container_width=True)
 
-                            # Driver timeline statistics
+                            # Estatísticas da linha do tempo do motorista
                             driver_data = consolidado_df[
                                 (consolidado_df['MOTORISTA'] == selected_driver_timeline)
                                 & consolidado_df['LATITUDE'].notna()
@@ -889,7 +1057,7 @@ def main():
                             ]
 
                             if len(driver_data) > 0:
-                                # Convert to datetime for time analysis
+                                # Converte para datetime para análise de tempo
                                 driver_data['DATETIME_ONIX'] = pd.to_datetime(
                                     driver_data['DATA_SEPARADA'] + ' ' + driver_data['HORA'], format='%d/%m/%Y %H:%M:%S'
                                 )
@@ -898,62 +1066,62 @@ def main():
 
                                 col1, col2, col3 = st.columns(3)
                                 with col1:
-                                    st.metric("Total Records", len(driver_data))
+                                    st.metric("Total de Registros", len(driver_data))
                                 with col2:
-                                    st.metric("Time Span", f"{time_span:.1f} hours")
+                                    st.metric("Período de Tempo", f"{time_span:.1f} horas")
                                 with col3:
                                     avg_dist = coord_df[coord_df['DRIVER'] == selected_driver_timeline]['AVG_DISTANCE_KM'].iloc[0]
-                                    st.metric("Avg Distance", f"{avg_dist:.1f} km")
+                                    st.metric("Distância Média", f"{avg_dist:.1f} km")
                         else:
-                            st.warning("No coordinate data available for this driver.")
+                            st.warning("Nenhum dado de coordenada disponível para este motorista.")
 
-                # Coordinate data table
-                st.header("📋 Coordinate Analysis Data")
+                # Tabela de dados de análise de coordenadas
+                st.header("📋 Dados da Análise de Coordenadas")
                 st.dataframe(coord_df.sort_values('AVG_DISTANCE_KM', ascending=False), use_container_width=True, height=400)
 
             with tab3:
-                # Driver Details
-                st.header("🔍 Individual Driver Analysis")
+                # Detalhes do Motorista
+                st.header("🔍 Análise Individual do Motorista")
 
-                # Driver selection
+                # Seleção do motorista
                 selected_driver_detail = st.selectbox(
-                    "Select Driver for Detailed Analysis", sorted(df['DRIVER'].tolist()), key="driver_detail"
+                    "Selecionar Motorista para Análise Detalhada", sorted(df['DRIVER'].tolist()), key="driver_detail"
                 )
 
                 if selected_driver_detail:
-                    # Get driver data
+                    # Obtém dados do motorista
                     driver_hours = df[df['DRIVER'] == selected_driver_detail].iloc[0]
                     driver_coords = coord_df[coord_df['DRIVER'] == selected_driver_detail].iloc[0]
 
-                    # Driver summary
+                    # Resumo do motorista
                     col1, col2, col3 = st.columns(3)
 
                     with col1:
-                        st.metric("ONIX Hours", f"{driver_hours['ONIX_TOTAL_HOURS']:.1f}")
-                        st.metric("Jornada Hours", f"{driver_hours['JORNADA_TOTAL_HOURS']:.1f}")
-                        st.metric("Hour Difference", f"{driver_hours['HOURS_DIFFERENCE']:.1f}")
+                        st.metric("Horas ONIX", f"{driver_hours['ONIX_TOTAL_HOURS']:.1f}")
+                        st.metric("Horas Jornada", f"{driver_hours['JORNADA_TOTAL_HOURS']:.1f}")
+                        st.metric("Diferença de Horas", f"{driver_hours['HOURS_DIFFERENCE']:.1f}")
 
                     with col2:
-                        st.metric("Avg Distance", f"{driver_coords['AVG_DISTANCE_KM']:.1f} km")
-                        st.metric("Max Distance", f"{driver_coords['MAX_DISTANCE_KM']:.1f} km")
-                        st.metric("Records with Coords", f"{driver_coords['RECORDS_WITH_COORDS']}")
+                        st.metric("Distância Média", f"{driver_coords['AVG_DISTANCE_KM']:.1f} km")
+                        st.metric("Distância Máxima", f"{driver_coords['MAX_DISTANCE_KM']:.1f} km")
+                        st.metric("Registros com Coord.", f"{driver_coords['RECORDS_WITH_COORDS']}")
 
                     with col3:
-                        st.metric("ONIX Work Starts", f"{driver_hours['ONIX_WORK_STARTS']}")
-                        st.metric("ONIX Work Ends", f"{driver_hours['ONIX_WORK_ENDS']}")
-                        st.metric("Jornada Work Starts", f"{driver_hours['JORNADA_WORK_STARTS']}")
+                        st.metric("Inícios de Trab. ONIX", f"{driver_hours['ONIX_WORK_STARTS']}")
+                        st.metric("Fins de Trab. ONIX", f"{driver_hours['ONIX_WORK_ENDS']}")
+                        st.metric("Inícios de Trab. Jornada", f"{driver_hours['JORNADA_WORK_STARTS']}")
 
-                    # Coordinate map
-                    st.header("🗺️ Coordinate Map")
+                    # Mapa de coordenadas
+                    st.header("🗺️ Mapa de Coordenadas")
                     coord_map = create_path_timeline_map(consolidado_df, selected_driver_detail)
                     if coord_map:
                         st.plotly_chart(coord_map, use_container_width=True)
                     else:
-                        st.warning("No coordinate data available for this driver.")
+                        st.warning("Nenhum dado de coordenada disponível para este motorista.")
 
-            # Analysis comparison
+            # Comparação de análises
             if 'compare_analysis' in st.session_state:
-                st.header("🔄 Analysis Comparison")
+                st.header("🔄 Comparação de Análises")
                 compare_data = load_analysis(st.session_state.compare_analysis)
 
                 if compare_data:
@@ -970,68 +1138,68 @@ def main():
                         st.subheader(f"📊 {st.session_state.compare_analysis}")
                         create_summary_metrics(compare_df)
 
-                    # Comparison charts
-                    st.subheader("📈 Comparison Charts")
+                    # Gráficos de comparação
+                    st.subheader("📈 Gráficos de Comparação")
 
-                    # Merge data for comparison
+                    # Mescla dados para comparação
                     comparison_df = pd.merge(
                         df[['DRIVER', 'ONIX_TOTAL_HOURS', 'JORNADA_TOTAL_HOURS', 'HOURS_DIFFERENCE']],
                         compare_df[['DRIVER', 'ONIX_TOTAL_HOURS', 'JORNADA_TOTAL_HOURS', 'HOURS_DIFFERENCE']],
                         on='DRIVER',
-                        suffixes=('_Current', '_Compare'),
+                        suffixes=('_Atual', '_Comparada'),
                     )
 
-                    # Hours comparison
+                    # Comparação de horas
                     fig = px.scatter(
                         comparison_df,
-                        x='ONIX_TOTAL_HOURS_Current',
-                        y='ONIX_TOTAL_HOURS_Compare',
+                        x='ONIX_TOTAL_HOURS_Atual',
+                        y='ONIX_TOTAL_HOURS_Comparada',
                         hover_data=['DRIVER'],
-                        title="ONIX Hours Comparison Between Analyses",
+                        title="Comparação de Horas ONIX Entre Análises",
                         labels={
-                            'ONIX_TOTAL_HOURS_Current': f'{current_analysis} ONIX Hours',
-                            'ONIX_TOTAL_HOURS_Compare': f'{st.session_state.compare_analysis} ONIX Hours',
+                            'ONIX_TOTAL_HOURS_Atual': f'{current_analysis} Horas ONIX',
+                            'ONIX_TOTAL_HOURS_Comparada': f'{st.session_state.compare_analysis} Horas ONIX',
                         },
                     )
 
-                    # Add diagonal line
-                    max_val = max(comparison_df['ONIX_TOTAL_HOURS_Current'].max(), comparison_df['ONIX_TOTAL_HOURS_Compare'].max())
+                    # Adiciona linha diagonal
+                    max_val = max(comparison_df['ONIX_TOTAL_HOURS_Atual'].max(), comparison_df['ONIX_TOTAL_HOURS_Comparada'].max())
                     fig.add_trace(
-                        go.Scatter(x=[0, max_val], y=[0, max_val], mode='lines', line=dict(dash='dash', color='red'), name='Perfect Match')
+                        go.Scatter(x=[0, max_val], y=[0, max_val], mode='lines', line=dict(dash='dash', color='red'), name='Correspondência Perfeita')
                     )
 
                     st.plotly_chart(fig, use_container_width=True)
 
-                    # Clear comparison
-                    if st.button("❌ Clear Comparison"):
+                    # Limpa comparação
+                    if st.button("❌ Limpar Comparação"):
                         del st.session_state.compare_analysis
                         st.rerun()
         else:
-            st.error("Analysis data not found.")
+            st.error("Dados da análise não encontrados.")
     else:
-        # Welcome screen
-        st.header("👋 Welcome to the Analysis Dashboard")
+        # Tela de boas-vindas
+        st.header("👋 Bem-vindo ao Dashboard de Análise")
         st.markdown(
             """
-        ### Get Started:
-        1. **Upload Files**: Use the sidebar to upload your ONIX and Jornada Excel files
-        2. **Create Analysis**: Give your analysis a name and process the files
-        3. **Explore Data**: Use the tabs to analyze working hours and coordinates
-        4. **Compare Analyses**: Create multiple analyses and compare them
+        ### Para Começar:
+        1. **Carregue os Arquivos**: Use a barra lateral para carregar seus arquivos Excel do ONIX e do Jornada.
+        2. **Crie uma Análise**: Dê um nome à sua análise e processe os arquivos.
+        3. **Explore os Dados**: Use as abas para analisar horas de trabalho e coordenadas.
+        4. **Compare Análises**: Crie múltiplas análises e compare-as lado a lado.
         
-        ### Features:
-        - ⚡ **Cached Processing**: Fast analysis with intelligent caching
-        - 📊 **Working Hours Analysis**: Compare time tracking between systems
-        - 🗺️ **Coordinate Analysis**: Visualize GPS accuracy and path timelines
-        - 🔄 **Analysis Comparison**: Compare multiple analyses side-by-side
-        - 📈 **Interactive Charts**: Dynamic visualizations with Plotly
+        ### Funcionalidades:
+        - ⚡ **Processamento em Cache**: Análise rápida com cache inteligente.
+        - 📊 **Análise de Horas de Trabalho**: Compare o rastreamento de tempo entre sistemas.
+        - 🗺️ **Análise de Coordenadas**: Visualize a precisão do GPS e as linhas do tempo dos trajetos.
+        - 🔄 **Comparação de Análises**: Compare múltiplas análises lado a lado.
+        - 📈 **Gráficos Interativos**: Visualizações dinâmicas com Plotly.
         """
         )
 
-        # Show saved analyses if any
+        # Mostra análises salvas, se houver
         analysis_list = get_analysis_list()
         if analysis_list:
-            st.subheader("📁 Saved Analyses")
+            st.subheader("📁 Análises Salvas")
             for analysis in analysis_list:
                 analysis_data = load_analysis(analysis)
                 if analysis_data:
@@ -1040,16 +1208,16 @@ def main():
                     with col1:
                         st.write(f"**{analysis}**")
                     with col2:
-                        st.write(f"Created: {metadata['created_at'][:19]}")
+                        st.write(f"Criada em: {metadata['created_at'][:19]}")
                     with col3:
-                        if st.button(f"Load {analysis}", key=f"load_{analysis}"):
+                        if st.button(f"Carregar {analysis}", key=f"load_{analysis}"):
                             st.session_state.current_analysis = analysis
                             st.rerun()
 
-    # Footer
+    # Rodapé
     st.markdown("---")
-    st.markdown("**Data Source**: ONIX GPS tracking system and Jornada driver status system")
-    st.markdown("**Note**: Coordinate distances calculated using Haversine formula")
+    st.markdown("**Fonte de Dados**: Sistema de rastreamento GPS ONIX e sistema de status de motorista Jornada")
+    st.markdown("**Nota**: Distâncias de coordenadas calculadas usando a fórmula de Haversine")
 
 
 if __name__ == "__main__":
