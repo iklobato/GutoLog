@@ -1,0 +1,5 @@
+Condutor,Data Cadastro,Status Gerado,Localização,Latitude,Longitude,Usuário,Data Geração,Identificador 2
+JOAO SILVA,05/10/2025 08:01:00,Inicio de jornada,"Rua Exemplo, 123",-23.5506,-46.6334,user1,05/10/2025 08:01:05,ID-A
+JOAO SILVA,05/10/2025 17:16:00,Fim de jornada,"Rua Exemplo, 456",-23.5526,-46.6356,user1,05/10/2025 17:16:05,ID-B
+MARIA SOUZA,05/10/2025 09:02:00,Inicio de jornada,"Av. Teste, 789",-22.9069,-43.1730,user2,05/10/2025 09:02:05,ID-C
+MARIA SOUZA,05/10/2025 18:01:00,Fim de jornada,"Av. Teste, 101",-22.9081,-43.1751,user2,05/10/2025 18:01:05,ID-D
