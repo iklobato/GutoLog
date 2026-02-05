@@ -1,0 +1,219 @@
+openapi: 3.0.3
+info:
+  title: Freight Budget Management API
+  version: "1.0.0"
+paths:
+  /quotations:
+    post:
+      summary: Create a quotation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuotationCreateRequest"
+      responses:
+        "201":
+          description: Quotation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quotation"
+  /quotations/{quotationId}:
+    get:
+      summary: Retrieve a quotation by ID (latest version)
+      parameters:
+        - $ref: "#/components/parameters/QuotationId"
+      responses:
+        "200":
+          description: Quotation returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quotation"
+  /quotations/{quotationId}/versions/{version}:
+    get:
+      summary: Retrieve a specific quotation version
+      parameters:
+        - $ref: "#/components/parameters/QuotationId"
+        - $ref: "#/components/parameters/Version"
+      responses:
+        "200":
+          description: Quotation version returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quotation"
+  /quotations/{quotationId}/commands:
+    post:
+      summary: Execute a quotation command
+      parameters:
+        - $ref: "#/components/parameters/QuotationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommandRequest"
+      responses:
+        "200":
+          description: Command executed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandResult"
+  /quotations/{quotationId}/pdf:
+    get:
+      summary: Retrieve a quotation PDF
+      parameters:
+        - $ref: "#/components/parameters/QuotationId"
+      responses:
+        "200":
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+  /metrics:
+    get:
+      summary: Retrieve dashboard metrics
+      parameters:
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: status
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Metrics returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricsResponse"
+components:
+  parameters:
+    QuotationId:
+      in: path
+      name: quotationId
+      required: true
+      schema:
+        type: string
+    Version:
+      in: path
+      name: version
+      required: true
+      schema:
+        type: integer
+  schemas:
+    QuotationCreateRequest:
+      type: object
+      required:
+        - line_items
+        - currency
+        - valid_from
+        - valid_to
+      properties:
+        currency:
+          type: string
+        valid_from:
+          type: string
+          format: date
+        valid_to:
+          type: string
+          format: date
+        budget_allocation_id:
+          type: string
+        line_items:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuotationLineItem"
+    Quotation:
+      type: object
+      properties:
+        quotation_id:
+          type: string
+        version:
+          type: integer
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        valid_from:
+          type: string
+          format: date
+        valid_to:
+          type: string
+          format: date
+        currency:
+          type: string
+        total_amount:
+          type: number
+        budget_allocation_id:
+          type: string
+        line_items:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuotationLineItem"
+    QuotationLineItem:
+      type: object
+      required:
+        - description
+        - quantity
+        - unit_price
+      properties:
+        description:
+          type: string
+        quantity:
+          type: number
+        unit_price:
+          type: number
+        amount:
+          type: number
+    CommandRequest:
+      type: object
+      required:
+        - command_name
+      properties:
+        command_name:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+    CommandResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        quotation:
+          $ref: "#/components/schemas/Quotation"
+        audit_event_id:
+          type: string
+        message:
+          type: string
+    MetricsResponse:
+      type: object
+      properties:
+        status_counts:
+          type: object
+          additionalProperties:
+            type: integer
+        total_amounts:
+          type: object
+          additionalProperties:
+            type: number
+        conversion_rate:
+          type: number

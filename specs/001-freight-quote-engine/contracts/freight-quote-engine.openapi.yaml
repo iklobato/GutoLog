@@ -1,0 +1,116 @@
+openapi: 3.0.3
+info:
+  title: Freight Quote Engine API
+  version: "1.0.0"
+paths:
+  /quotations/calculate:
+    post:
+      summary: Calculate a freight quotation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuotationRequest"
+      responses:
+        "200":
+          description: Quotation calculated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuotationResult"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+components:
+  schemas:
+    QuotationRequest:
+      type: object
+      required:
+        - origin_city
+        - destination_city
+        - km_total
+        - vehicle_type
+        - has_return
+        - quantity_of_vehicles
+        - cargo_type
+        - cargo_value_nf
+        - cargo_weight
+        - is_dangerous_product
+        - is_refrigerated
+        - needs_helper
+        - needs_tracking_device
+        - additional_diarias_qty
+        - toll_per_axle
+        - negotiation_percentage
+        - apply_icms
+      properties:
+        origin_city:
+          type: string
+        destination_city:
+          type: string
+        km_total:
+          type: integer
+        vehicle_type:
+          type: string
+        has_return:
+          type: boolean
+        quantity_of_vehicles:
+          type: integer
+        cargo_type:
+          type: string
+        cargo_value_nf:
+          type: number
+        cargo_weight:
+          type: number
+        is_dangerous_product:
+          type: boolean
+        is_refrigerated:
+          type: boolean
+        needs_helper:
+          type: boolean
+        needs_tracking_device:
+          type: boolean
+        additional_diarias_qty:
+          type: integer
+        toll_per_axle:
+          type: number
+        negotiation_percentage:
+          type: number
+        apply_icms:
+          type: boolean
+    QuotationResult:
+      type: object
+      properties:
+        km_band_used:
+          type: object
+          additionalProperties: true
+        vehicle_type:
+          type: string
+        freight_base:
+          type: number
+        surcharges_breakdown:
+          type: object
+          additionalProperties: true
+        insurance_breakdown:
+          type: object
+          additionalProperties: true
+        negotiation_adjustment:
+          type: number
+        tax_amount:
+          type: number
+        final_total:
+          type: number
+        reference_prices:
+          type: object
+          additionalProperties: true
+    ValidationError:
+      type: object
+      properties:
+        field:
+          type: string
+        message:
+          type: string

@@ -1,0 +1,1 @@
+"""Freight Budget Management package."""

@@ -1,0 +1,178 @@
+openapi: 3.0.3
+info:
+  title: Quotation List View API
+  version: "1.0.0"
+paths:
+  /quotations:
+    get:
+      summary: List quotations with filters
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: customer
+          schema:
+            type: string
+        - in: query
+          name: min_amount
+          schema:
+            type: number
+        - in: query
+          name: max_amount
+          schema:
+            type: number
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Quotations listed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuotationListResponse"
+  /quotations/{quotationId}:
+    get:
+      summary: Retrieve quotation for edit
+      parameters:
+        - $ref: "#/components/parameters/QuotationId"
+      responses:
+        "200":
+          description: Quotation returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuotationDetail"
+  /quotations/{quotationId}/lock:
+    post:
+      summary: Acquire edit lock
+      parameters:
+        - $ref: "#/components/parameters/QuotationId"
+      responses:
+        "200":
+          description: Lock acquired
+  /quotations/{quotationId}/lock:
+    delete:
+      summary: Release edit lock
+      parameters:
+        - $ref: "#/components/parameters/QuotationId"
+      responses:
+        "200":
+          description: Lock released
+  /quotations/{quotationId}:
+    patch:
+      summary: Update quotation fields
+      parameters:
+        - $ref: "#/components/parameters/QuotationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuotationUpdateRequest"
+      responses:
+        "200":
+          description: Quotation updated
+  /quotations/{quotationId}/audit:
+    get:
+      summary: Retrieve audit history
+      parameters:
+        - $ref: "#/components/parameters/QuotationId"
+      responses:
+        "200":
+          description: Audit history returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditHistoryResponse"
+components:
+  parameters:
+    QuotationId:
+      in: path
+      name: quotationId
+      required: true
+      schema:
+        type: string
+  schemas:
+    QuotationListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuotationSummary"
+    QuotationSummary:
+      type: object
+      properties:
+        quotation_id:
+          type: string
+        status:
+          type: string
+        customer:
+          type: string
+        total_amount:
+          type: number
+        updated_at:
+          type: string
+          format: date-time
+    QuotationDetail:
+      type: object
+      properties:
+        quotation_id:
+          type: string
+        version:
+          type: integer
+        status:
+          type: string
+        customer:
+          type: string
+        valid_from:
+          type: string
+          format: date
+        valid_to:
+          type: string
+          format: date
+        total_amount:
+          type: number
+    QuotationUpdateRequest:
+      type: object
+      properties:
+        fields:
+          type: object
+          additionalProperties: true
+    AuditHistoryResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEntry"
+    AuditEntry:
+      type: object
+      properties:
+        audit_event_id:
+          type: string
+        actor:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        before_values:
+          type: object
+          additionalProperties: true
+        after_values:
+          type: object
+          additionalProperties: true
